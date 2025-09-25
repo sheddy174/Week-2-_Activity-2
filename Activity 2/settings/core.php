@@ -4,7 +4,12 @@
  * Handles session management, authentication, and common utilities
  */
 
-// Start session if not already started
+// Enable error reporting for development
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+// Start session if not already started - REQUIRED BY LAB
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -13,12 +18,28 @@ if (session_status() === PHP_SESSION_NONE) {
 ob_start();
 
 /**
- * Check if user is logged in
+ * Checks if a session has been created and returns true if a session has been made or false otherwise
  * @return boolean True if logged in, false otherwise
  */
 function is_logged_in()
 {
     return isset($_SESSION['customer_id']) && !empty($_SESSION['customer_id']);
+}
+
+/**
+ * Checks the user's role in the session array and returns a truth value to indicate 
+ * if the user has elevated or regular permissions
+ * @return boolean True if user has admin privileges, false otherwise
+ */
+function is_admin()
+{
+    // Check if user is logged in first
+    if (!is_logged_in()) {
+        return false;
+    }
+    
+    // Check if user role is set and equals 1 (admin role)
+    return isset($_SESSION['user_role']) && $_SESSION['user_role'] === 1;
 }
 
 /**
@@ -40,21 +61,18 @@ function get_user_role()
 }
 
 /**
- * Check if user has admin role
- * @return boolean True if admin, false otherwise
- */
-function is_admin()
-{
-    return get_user_role() === 1;
-}
-
-/**
  * Check if user has customer role
  * @return boolean True if customer, false otherwise
  */
 function is_customer()
 {
-    return get_user_role() === 2;
+    // Check if user is logged in first
+    if (!is_logged_in()) {
+        return false;
+    }
+    
+    // Check if user role is set and equals 2 (customer role)
+    return isset($_SESSION['user_role']) && $_SESSION['user_role'] === 2;
 }
 
 /**
@@ -65,6 +83,25 @@ function is_customer()
 function require_login($redirect_url = '../login/login.php')
 {
     if (!is_logged_in()) {
+        header("Location: " . $redirect_url);
+        exit();
+    }
+}
+
+/**
+ * Redirect user to login if not admin
+ * Enhanced function for admin-only pages - useful for Part B
+ * @param string $redirect_url URL to redirect to if not admin
+ * @return void
+ */
+function require_admin($redirect_url = '../login/login.php')
+{
+    if (!is_logged_in()) {
+        header("Location: " . $redirect_url);
+        exit();
+    }
+    
+    if (!is_admin()) {
         header("Location: " . $redirect_url);
         exit();
     }
@@ -120,7 +157,46 @@ function set_user_session($user_data)
     $_SESSION['customer_name'] = $user_data['customer_name'];
     $_SESSION['customer_email'] = $user_data['customer_email'];
     $_SESSION['user_role'] = $user_data['user_role'];
+    $_SESSION['customer_country'] = $user_data['customer_country'] ?? '';
+    $_SESSION['customer_city'] = $user_data['customer_city'] ?? '';
+    $_SESSION['customer_contact'] = $user_data['customer_contact'] ?? '';
     $_SESSION['login_time'] = time();
+}
+
+/**
+ * Get current user's full name
+ * @return string|false User's full name or false if not logged in
+ */
+function get_user_name()
+{
+    return is_logged_in() ? $_SESSION['customer_name'] : false;
+}
+
+/**
+ * Get current user's email
+ * @return string|false User's email or false if not logged in
+ */
+function get_user_email()
+{
+    return is_logged_in() ? $_SESSION['customer_email'] : false;
+}
+
+/**
+ * Check if current session is valid (not expired)
+ * @param int $max_lifetime Maximum session lifetime in seconds (default: 24 hours)
+ * @return boolean True if session is valid, false if expired
+ */
+function is_session_valid($max_lifetime = 86400)
+{
+    if (!is_logged_in()) {
+        return false;
+    }
+    
+    if (isset($_SESSION['login_time'])) {
+        return (time() - $_SESSION['login_time']) < $max_lifetime;
+    }
+    
+    return true; // If login_time is not set, assume valid for backward compatibility
 }
 
 /**
@@ -236,7 +312,8 @@ function log_activity($message, $level = 'info')
     $log_file = '../logs/activity.log';
     $timestamp = date('Y-m-d H:i:s');
     $user_id = get_user_id() ?: 'guest';
-    $log_entry = "[{$timestamp}] [{$level}] [User: {$user_id}] {$message}" . PHP_EOL;
+    $user_role = is_admin() ? 'admin' : (is_customer() ? 'customer' : 'guest');
+    $log_entry = "[{$timestamp}] [{$level}] [User: {$user_id}] [Role: {$user_role}] {$message}" . PHP_EOL;
     
     // Create logs directory if it doesn't exist
     $log_dir = dirname($log_file);
@@ -274,5 +351,28 @@ function time_ago($datetime)
     if ($time < 31536000) return floor($time / 2592000) . ' months ago';
     
     return floor($time / 31536000) . ' years ago';
+}
+
+/**
+ * Debug function to display session information (for development only)
+ * @return array Current session data (sensitive data removed)
+ */
+function get_session_debug_info()
+{
+    if (!is_logged_in()) {
+        return ['status' => 'not_logged_in'];
+    }
+    
+    return [
+        'status' => 'logged_in',
+        'user_id' => get_user_id(),
+        'user_name' => get_user_name(),
+        'user_email' => get_user_email(),
+        'user_role' => get_user_role(),
+        'is_admin' => is_admin(),
+        'is_customer' => is_customer(),
+        'login_time' => $_SESSION['login_time'] ?? 'unknown',
+        'session_valid' => is_session_valid()
+    ];
 }
 ?>
